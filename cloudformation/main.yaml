@@ -1,0 +1,10 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Root stack to manage nested CloudFormation stacks
+
+Resources:
+
+  VPCStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: https://<your-s3-bucket>.s3.amazonaws.com/cloudformation/vpc/vpc-stack.yaml
+      TimeoutInMinutes: 10
