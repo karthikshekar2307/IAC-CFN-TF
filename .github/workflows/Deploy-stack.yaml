@@ -1,0 +1,78 @@
+name: Deploy-Stack
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Deployment environment'
+        required: true
+        default: 'non-prod'
+        type: choice
+        options:
+          - non-prod
+          - prod
+      branch:
+        description: 'Git branch to use'
+        required: true
+        default: 'main'
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  upload-and-deploy:
+    runs-on: ubuntu-latest
+
+    env:
+      AWS_REGION: ap-southeast-2
+      NON_PROD_BUCKET_NAME: my-cfn-nested-stacks-nonprod
+      PROD_BUCKET_NAME: my-cfn-nested-stacks-prod
+
+    steps:
+      - name: Checkout selected branch
+        uses: actions/checkout@v3
+        with:
+          ref: ${{ github.event.inputs.branch }}
+
+      - name: Configure AWS credentials using OIDC
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          role-to-assume: arn:aws:iam::896553234455:role/GitHubOIDCIAC
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Set bucket name based on environment
+        id: set-bucket
+        run: |
+          if [[ "${{ github.event.inputs.environment }}" == "prod" ]]; then
+            echo "bucket=${{ env.PROD_BUCKET_NAME }}" >> $GITHUB_OUTPUT
+          else
+            echo "bucket=${{ env.NON_PROD_BUCKET_NAME }}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Upload VPC stack template to S3
+        run: |
+          BUCKET_NAME="${{ steps.set-bucket.outputs.bucket }}"
+          aws s3 cp cloudformation/vpc/vpc-stack.yaml s3://$BUCKET_NAME/cloudformation/vpc/vpc-stack.yaml
+
+      - name: Generate and deploy main.yaml (root stack)
+        run: |
+          BUCKET_NAME="${{ steps.set-bucket.outputs.bucket }}"
+          cat <<EOF > main.yaml
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Root Stack
+
+Resources:
+  VPCStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: https://$BUCKET_NAME.s3.${{ env.AWS_REGION }}.amazonaws.com/cloudformation/vpc/vpc-stack.yaml
+      TimeoutInMinutes: 10
+EOF
+
+          echo "Deploying root stack..."
+          aws cloudformation deploy \
+            --template-file main.yaml \
+            --stack-name root-nested-stack-${{ github.event.inputs.environment }} \
+            --capabilities CAPABILITY_NAMED_IAM \
+            --region ${{ env.AWS_REGION }}
