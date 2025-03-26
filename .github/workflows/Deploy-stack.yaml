@@ -58,7 +58,8 @@ jobs:
       - name: Generate and deploy main.yaml (root stack)
         run: |
           BUCKET_NAME="${{ steps.set-bucket.outputs.bucket }}"
-          cat <<EOF > main.yaml
+
+          cat > main.yaml <<EOF
 AWSTemplateFormatVersion: '2010-09-09'
 Description: Root Stack
 
